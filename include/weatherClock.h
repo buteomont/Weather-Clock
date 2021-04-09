@@ -10,7 +10,7 @@
 #define COORDINATE_SIZE 10
 
 #define WEATHER_HOST "api.openweathermap.org"
-#define WEATHER_URL "/data/2.5/onecall?lat={latitude}&lon={longitude}&units=imperial&appid=80da0833f9d809d15e24e97b903314c6"
+#define WEATHER_URL "/data/2.5/onecall?lat={latitude}&lon={longitude}&units=imperial&appid={key}"
 #define WEATHER_SIZE 32768
 
 // Error codes copied from the MQTT library
