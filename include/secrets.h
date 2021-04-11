@@ -1,0 +1,1 @@
+#define WEATHER_KEY "af920e454e62bab50945e60a4bfe5fa5"

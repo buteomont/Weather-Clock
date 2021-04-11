@@ -1,6 +1,6 @@
 #include <Arduino.h>
 /**
- * This is an ESP8266 program to display the current UNIX time on an
+ * This is an ESP8266 program to display the time and weather on an
  * OLED display.
  *
  * Configuration is done via serial connection.  Enter:
@@ -16,7 +16,7 @@
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
 #include "weatherClock.h"
-#include <StreamUtils.h>
+#include "secrets.h"
 
 OLED myOLED(SDA, SCL);
 extern uint8_t TinyFont[];
@@ -35,10 +35,11 @@ typedef struct
   char ssid[SSID_SIZE] = "";
   char wifiPassword[PASSWORD_SIZE] = "";
   int sleepTime=10; //seconds to sleep between distance checks
-  char address[ADDRESS_SIZE]=""; //static address for this device
   int gmtOffset=0;  // -5 for CDT
   double latitude=0.0;  //for weather report
   double longitude=0.0; 
+  char address[ADDRESS_SIZE]=""; //static address for this device
+  char netmask[ADDRESS_SIZE]=""; //netmask for static address
   } conf;
 
 conf settings; //all settings in one struct makes it easier to store in EEPROM
@@ -48,9 +49,9 @@ String commandString = "";     // a String to hold incoming commands from serial
 bool commandComplete = false;  // goes true when enter is pressed
 
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
-char properURL[sizeof WEATHER_URL];
+char properURL[sizeof WEATHER_URL + sizeof WEATHER_KEY];
 
 StaticJsonDocument<WEATHER_SIZE> jDoc; //this will hold the weather query results
 char weatherBuff[WEATHER_SIZE];
@@ -96,10 +97,6 @@ void updateWeather()
     Serial.println("Connected to server");
     String url=String("http://")+String(WEATHER_HOST)+String(properURL);
     Serial.println("Fetching \""+url+"\""); 
-    // wifiClient.print("GET " + String(properURL) + " HTTP/1.1\r\n");
-    // wifiClient.print("Host: " + String(WEATHER_HOST)+"\r\n");
-    // wifiClient.print("Connection: close\r\n");
-    // wifiClient.print("\r\n"); // end HTTP request header
     http.begin(wifiClient, url);
     int httpCode=http.GET();
     if (httpCode>0)
@@ -160,12 +157,13 @@ void fixup(char* rawString)
   String rs=String(rawString);
   rs.replace("{latitude}",String(settings.latitude,4));
   rs.replace("{longitude}",String(settings.longitude,4));
+  rs.replace("{key}",WEATHER_KEY);
   strcpy(rawString,rs.c_str());
   }
 
 void setup() 
   {
-  //ESP.wdtEnable(WDTO_8S);
+  ESP.wdtEnable(WDTO_8S);
   pinMode(LED_BUILTIN,OUTPUT);// The blue light on the board shows WiFi activity
 
   Serial.begin(115200);
@@ -174,6 +172,8 @@ void setup()
   
   while (!Serial); // wait here for serial port to connect.
 
+  Serial.print("Setting size is ");
+  Serial.println(sizeof(settings));
   EEPROM.begin(sizeof(settings)); //fire up the eeprom section of flash
   commandString.reserve(200); // reserve 200 bytes of serial buffer space for incoming command string
 
@@ -185,9 +185,9 @@ void setup()
     fixup(properURL);
     connectToWiFi(); //connect to the wifi
     Serial.println("updating time");
-    timeClient.begin();
+//    timeClient.begin(); //this crashes for some reason, but apparently not needed anyway
     updateTime();
-//    updateWeather();
+    updateWeather();
     }
 
   boolean oledGood=myOLED.begin(SSD1306_128X64);
@@ -211,12 +211,14 @@ void loop()
   {
   static unsigned long lastTime=timeClient.getEpochTime();
 
+  ESP.wdtFeed();
+  
   checkForCommand(); // Check for input in case something needs to be changed to work
 
   unsigned long currentTime=timeClient.getEpochTime();
-  if (currentTime != lastTime)
+  if (settingsAreValid && currentTime != lastTime)
     {
-    if (currentTime%6000 ==0 || timeClient.getEpochTime() < 100000)
+    if (currentTime%30 ==0 || timeClient.getEpochTime() < 100000)
       {
       updateTime();
       }
