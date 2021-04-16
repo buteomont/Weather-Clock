@@ -11,12 +11,14 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <EEPROM.h>
+#include <pgmspace.h>
 #include <NTPClient.h>
 #include <OLED_I2C.h>
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
 #include "weatherClock.h"
 #include "secrets.h"
+#include "weatherIcons.h"
 
 OLED myOLED(SDA, SCL);
 extern uint8_t TinyFont[];
@@ -52,20 +54,29 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 char properURL[sizeof WEATHER_URL + sizeof WEATHER_KEY];
+IPAddress weatherAddr; //IP address of WEATHER_HOST
+boolean weatherIsFetched=false;
 
 StaticJsonDocument<WEATHER_SIZE> jDoc; //this will hold the weather query results
+//DynamicJsonDocument jDoc(WEATHER_SIZE); //this will hold the weather query results
 char weatherBuff[WEATHER_SIZE];
+char iconBuffer[ICON_SIZE];
+
 
 void printJson(JsonObject jo, String parent)
   {
   for (JsonPair keyValue : jo) 
     {
-    yield();
     if (keyValue.value().nesting()>0)
       {
       String newParent=parent+"."+keyValue.key().c_str();
       printJson(keyValue.value(),newParent);
       }
+    // else if (keyValue.value().)
+    //   {
+    //   String newParent=parent+"."+keyValue.key().c_str();
+    //   printJson(keyValue.value(),newParent);
+    //   }
     else
       {
       Serial.print(parent+".");
@@ -76,25 +87,91 @@ void printJson(JsonObject jo, String parent)
       Serial.println(keyValue.value().nesting());
       }
     }
+  }
 
+void pickIcon(const char* iconCode)
+  {
+//  ESP.wdtFeed();
+  yield();
+  if (strcmp(iconCode,"01d")==0)
+    memcpy_P(iconBuffer,clearSkyDay,ICON_SIZE);
+  else if (strcmp(iconCode,"02d")==0)
+    memcpy_P(iconBuffer,fewCloudsDay,ICON_SIZE);
+  else if (strcmp(iconCode,"03d")==0)
+    memcpy_P(iconBuffer,scatteredCloudsDay,ICON_SIZE);
+  else if (strcmp(iconCode,"04d")==0)
+    memcpy_P(iconBuffer,brokenCloudsDay,ICON_SIZE);
+  else if (strcmp(iconCode,"09d")==0)
+    memcpy_P(iconBuffer,showerRainDay,ICON_SIZE);
+  else if (strcmp(iconCode,"10d")==0)
+    memcpy_P(iconBuffer,rainDay,ICON_SIZE);
+  else if (strcmp(iconCode,"11d")==0)
+    memcpy_P(iconBuffer,thunderstormDay,ICON_SIZE);
+  else if (strcmp(iconCode,"13d")==0)
+    memcpy_P(iconBuffer,snowDay,ICON_SIZE);
+  else if (strcmp(iconCode,"50d")==0)
+    memcpy_P(iconBuffer,mistDay,ICON_SIZE);
+  else if (strcmp(iconCode,"01n")==0)
+    memcpy_P(iconBuffer,clearSkyNight,ICON_SIZE);
+  else if (strcmp(iconCode,"02n")==0)
+    memcpy_P(iconBuffer,fewCloudsNight,ICON_SIZE);
+  else if (strcmp(iconCode,"03n")==0)
+    memcpy_P(iconBuffer,scatteredCloudsNight,ICON_SIZE);
+  else if (strcmp(iconCode,"04n")==0)
+    memcpy_P(iconBuffer,brokenCloudsNight,ICON_SIZE);
+  else if (strcmp(iconCode,"09n")==0)
+    memcpy_P(iconBuffer,showerRainNight,ICON_SIZE);
+  else if (strcmp(iconCode,"10n")==0)
+    memcpy_P(iconBuffer,rainNight,ICON_SIZE);
+  else if (strcmp(iconCode,"11n")==0)
+    memcpy_P(iconBuffer,thunderstormNight,ICON_SIZE);
+  else if (strcmp(iconCode,"13n")==0)
+    memcpy_P(iconBuffer,snowNight,ICON_SIZE);
+  else if (strcmp(iconCode,"50n")==0)
+    memcpy_P(iconBuffer,mistNight,ICON_SIZE);
+  else 
+    memset(iconBuffer,0,ICON_SIZE);
+  }
+
+void displayWeather(JsonObject jo)
+  {
+  const char* conditions=jo["current"]["weather"][0]["main"].as<char*>();
+  int temperature=(int)jo["current"]["temp"].as<float>();
+  int wind=(int)jo["current"]["wind_speed"].as<float>();
+  const char* icon=jo["current"]["weather"][0]["icon"].as<char*>();
+  pickIcon(icon); //goes into global iconBuffer
+
+  myOLED.setFont(SmallFont);
+  myOLED.print(conditions,LEFT,32);
+  myOLED.print(String(temperature)+String(" degrees"),RIGHT,32);
+  myOLED.print(String("Wind is ")+String(wind)+String(" MPH"),CENTER,42);
+  myOLED.drawBitmap(0,0,(uint8_t *)iconBuffer,32,32);
+
+  Serial.println(conditions);
+  Serial.println(temperature);
+  Serial.println(wind);
+  Serial.println(icon);
+  Serial.print("-");
+  Serial.write(iconBuffer,ICON_SIZE);
+  Serial.println("-");
   }
 
 void updateWeather()
   {
   digitalWrite(LED_BUILTIN,LOW); //turn on the LED
   Serial.print(timeClient.getFormattedTime());
-  Serial.print("\t");
-  Serial.println("Refreshing weather");
+  Serial.print("\tRefreshing weather...");
   connectToWiFi(); //may need to connect to the wifi
 
   //Fetch the weather JSON object
-  if(!wifiClient.connect(WEATHER_HOST, 80)) 
+  ESP.wdtFeed();
+  if(!wifiClient.connect(weatherAddr, 80))
     {
     Serial.println("connection failed");
     }
   else 
     {
-    Serial.println("Connected to server");
+    Serial.println("connected to server...");
     String url=String("http://")+String(WEATHER_HOST)+String(properURL);
     Serial.println("Fetching \""+url+"\""); 
     http.begin(wifiClient, url);
@@ -106,9 +183,11 @@ void updateWeather()
       // DeserializationError de=deserializeJson(jDoc, loggingStream);
       if (de.code()==de.Ok)
         {
-        Serial.println("Weather refreshed.");
+        Serial.println("done.");
+        weatherIsFetched=true;
         JsonObject documentRoot = jDoc.as<JsonObject>();
-        printJson(documentRoot,"root");
+//        printJson(documentRoot,"root");
+        displayWeather(documentRoot);
         }
       else
         {
@@ -138,14 +217,16 @@ void updateTime()
   {
   digitalWrite(LED_BUILTIN,LOW); //turn on the LED
   Serial.print(timeClient.getFormattedTime());
-  Serial.print("\t");
-  Serial.println("Refreshing time");
+  Serial.print("\tRefreshing time...");
   connectToWiFi(); //may need to connect to the wifi
   if (settingsAreValid && WiFi.status() == WL_CONNECTED)
     {
     bool timeGood=timeClient.update();
     if (timeGood)
+      {
       timeClient.setTimeOffset(settings.gmtOffset*3600);
+      Serial.println("done.");
+      }
     else
       Serial.println("***** Unable to refresh time *****");
     }
@@ -163,7 +244,7 @@ void fixup(char* rawString)
 
 void setup() 
   {
-  ESP.wdtEnable(WDTO_8S);
+//  ESP.wdtEnable(WDTO_8S);
   pinMode(LED_BUILTIN,OUTPUT);// The blue light on the board shows WiFi activity
 
   Serial.begin(115200);
@@ -177,58 +258,54 @@ void setup()
   EEPROM.begin(sizeof(settings)); //fire up the eeprom section of flash
   commandString.reserve(200); // reserve 200 bytes of serial buffer space for incoming command string
 
+  Serial.println("Loading settings");
   loadSettings(); //set the values from eeprom
   
   if (settingsAreValid) //Get the initial time setting
     {
+    Serial.println("Fixing weather URL");
     strcpy(properURL,WEATHER_URL);
     fixup(properURL);
+    Serial.println("Connecting to WiFi");
     connectToWiFi(); //connect to the wifi
-    Serial.println("updating time");
-//    timeClient.begin(); //this crashes for some reason, but apparently not needed anyway
-    updateTime();
-    updateWeather();
-    }
 
-  boolean oledGood=myOLED.begin(SSD1306_128X64);
-  if (!oledGood)
-    {
-    Serial.println("Problem allocating display buffer!");
-    delay(100000);
+    boolean oledGood=myOLED.begin(SSD1306_128X64);
+    if (!oledGood)
+      {
+      Serial.println("Problem allocating display buffer!");
+      delay(100000);
+      }
+    myOLED.setBrightness(100);
+    myOLED.clrScr();
     }
-  myOLED.setBrightness(100);
-  }
- 
-void showTime()
-  {
-  myOLED.clrScr();
-  myOLED.setFont(SmallFont);
-  myOLED.print(timeClient.getFormattedTime(),RIGHT,0);
-  myOLED.update();
   }
 
 void loop()
   {
   static unsigned long lastTime=timeClient.getEpochTime();
-
-  ESP.wdtFeed();
-  
+  ESP.wdtFeed();  
   checkForCommand(); // Check for input in case something needs to be changed to work
 
   unsigned long currentTime=timeClient.getEpochTime();
   if (settingsAreValid && currentTime != lastTime)
     {
-    if (currentTime%30 ==0 || timeClient.getEpochTime() < 100000)
+    //Update the time every 12 hours, or if we just powered up
+    if (currentTime%43200 ==0 || timeClient.getEpochTime() < 100000)
       {
       updateTime();
       }
     lastTime=currentTime;
-    showTime();
 
-    if (currentTime%60 ==0)
+    myOLED.setFont(SmallFont);
+    myOLED.print(timeClient.getFormattedTime(),RIGHT,0);
+
+    //Update the weather every five minutes
+    if (currentTime%300 ==0 || !weatherIsFetched)
       {
+      myOLED.clrScr();
       updateWeather();
       }
+    myOLED.update();
     }
   }
   
@@ -242,12 +319,8 @@ void connectToWiFi()
     Serial.print("Attempting to connect to WPA SSID \"");
     Serial.print(settings.ssid);
     Serial.println("\"");
-
-//    WiFi.forceSleepWake(); //turn on the radio
-//    delay(1);              //return control to let it come on
-    
+   
     WiFi.mode(WIFI_STA); //station mode, we are only a client in the wifi world
-    ESP.wdtFeed(); //feed the watchdog timers. Connecting may take a while.
     WiFi.begin(settings.ssid, settings.wifiPassword);
     while (WiFi.status() != WL_CONNECTED) 
       {
@@ -260,6 +333,16 @@ void connectToWiFi()
   
     Serial.println("Connected to network.");
     Serial.println();
+    }
+
+  //get the address of the weather service if not already set.
+  //We have to do this here because we get a WDT reset if 
+  //we try to get the weather data when using the host name
+  //instead of the address.  
+  if (!weatherAddr.isSet())
+    {
+    WiFi.hostByName(WEATHER_HOST,weatherAddr,500);
+    ESP.wdtFeed();
     }
   }
 
