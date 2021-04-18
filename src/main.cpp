@@ -16,6 +16,7 @@
 #include <OLED_I2C.h>
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
+#include <TimeLib.h>
 #include "weatherClock.h"
 #include "secrets.h"
 #include "weatherIcons.h"
@@ -63,36 +64,76 @@ char weatherBuff[WEATHER_SIZE];
 char iconBuffer[ICON_SIZE];
 
 
-void printJson(JsonObject jo, String parent)
+// void printJson(JsonObject jo, String parent)
+//   {
+//   for (JsonPair keyValue : jo) 
+//     {
+//     if (keyValue.value().nesting()>0)
+//       {
+//       String newParent=parent+"."+keyValue.key().c_str();
+//       printJson(keyValue.value(),newParent);
+//       }
+//     // else if (keyValue.value().)
+//     //   {
+//     //   String newParent=parent+"."+keyValue.key().c_str();
+//     //   printJson(keyValue.value(),newParent);
+//     //   }
+//     else
+//       {
+//       Serial.print(parent+".");
+//       Serial.print(keyValue.key().c_str());
+//       Serial.print("=");
+//       Serial.print(keyValue.value().as<char*>());
+//       Serial.print(keyValue.value().as<float>());
+//       Serial.println(keyValue.value().nesting());
+//       }
+//     }
+//   }
+
+//Convert e.g. 130 degrees to "SE"
+void windDirection(char* compass, int degrees)
   {
-  for (JsonPair keyValue : jo) 
-    {
-    if (keyValue.value().nesting()>0)
-      {
-      String newParent=parent+"."+keyValue.key().c_str();
-      printJson(keyValue.value(),newParent);
-      }
-    // else if (keyValue.value().)
-    //   {
-    //   String newParent=parent+"."+keyValue.key().c_str();
-    //   printJson(keyValue.value(),newParent);
-    //   }
-    else
-      {
-      Serial.print(parent+".");
-      Serial.print(keyValue.key().c_str());
-      Serial.print("=");
-      Serial.print(keyValue.value().as<char*>());
-      Serial.print(keyValue.value().as<float>());
-      Serial.println(keyValue.value().nesting());
-      }
-    }
+  yield();
+  if (degrees>349 || degrees<12)
+    strcpy(compass,"N");
+  else if (degrees>11 && degrees<33)
+    strcpy(compass,"NNE");
+  else if (degrees>32 && degrees<56)
+    strcpy(compass,"NE");
+  else if (degrees>55 && degrees<78)
+    strcpy(compass,"ENE");
+  else if (degrees>77 && degrees<101)
+    strcpy(compass,"E");
+  else if (degrees>100 && degrees<124)
+    strcpy(compass,"ESE");
+  else if (degrees>123 && degrees<146)
+    strcpy(compass,"SE");
+  else if (degrees>145 && degrees<168)
+    strcpy(compass,"SSE");
+  else if (degrees>167 && degrees<192)
+    strcpy(compass,"S");
+  else if (degrees>191 && degrees<213)
+    strcpy(compass,"SSW");
+  else if (degrees>212 && degrees<237)
+    strcpy(compass,"SW");
+  else if (degrees>236 && degrees<259)
+    strcpy(compass,"WSW");
+  else if (degrees>258 && degrees<281)
+    strcpy(compass,"W");
+  else if (degrees>280 && degrees<304)
+    strcpy(compass,"WNW");
+  else if (degrees>303 && degrees<326)
+    strcpy(compass,"NW");
+  else if (degrees>325 && degrees<350)
+    strcpy(compass,"NNW");
+  else
+    sprintf(compass,"%03d",degrees);
   }
 
 void pickIcon(const char* iconCode)
   {
 //  ESP.wdtFeed();
-  yield();
+  yield(); //Let the dog eat
   if (strcmp(iconCode,"01d")==0)
     memcpy_P(iconBuffer,clearSkyDay,ICON_SIZE);
   else if (strcmp(iconCode,"02d")==0)
@@ -139,21 +180,25 @@ void displayWeather(JsonObject jo)
   int temperature=(int)jo["current"]["temp"].as<float>();
   int wind=(int)jo["current"]["wind_speed"].as<float>();
   const char* icon=jo["current"]["weather"][0]["icon"].as<char*>();
+  int windDir=jo["current"]["wind_deg"].as<int>();
   pickIcon(icon); //goes into global iconBuffer
+  char comp[4];
+  windDirection(comp,windDir);
+  int humidity=jo["current"]["humidity"].as<int>();
+  const char* alert=jo["alerts"][0]["event"].as<char*>();
+
 
   myOLED.setFont(SmallFont);
-  myOLED.print(conditions,LEFT,32);
-  myOLED.print(String(temperature)+String(" degrees"),RIGHT,32);
-  myOLED.print(String("Wind is ")+String(wind)+String(" MPH"),CENTER,42);
   myOLED.drawBitmap(0,0,(uint8_t *)iconBuffer,32,32);
+  myOLED.print(conditions,LEFT,34);
 
-  Serial.println(conditions);
-  Serial.println(temperature);
-  Serial.println(wind);
-  Serial.println(icon);
-  Serial.print("-");
-  Serial.write(iconBuffer,ICON_SIZE);
-  Serial.println("-");
+  myOLED.print(String(humidity)+String("%  ")+String(temperature)+String("~F"),RIGHT,24); 
+  if (wind>0)
+    myOLED.print(String(wind)+String(" MPH ")+String(comp),RIGHT,36);
+  else
+    myOLED.print(String("Wind is calm"),RIGHT,36);
+
+  myOLED.print(String(alert),CENTER,53);
   }
 
 void updateWeather()
@@ -183,7 +228,7 @@ void updateWeather()
       // DeserializationError de=deserializeJson(jDoc, loggingStream);
       if (de.code()==de.Ok)
         {
-        Serial.println("done.");
+        Serial.println("...done.");
         weatherIsFetched=true;
         JsonObject documentRoot = jDoc.as<JsonObject>();
 //        printJson(documentRoot,"root");
@@ -191,13 +236,13 @@ void updateWeather()
         }
       else
         {
-        Serial.print("Error: ");
+        Serial.print("...Error: ");
         Serial.println(de.code());
         }
       }
     else
       {
-      Serial.println("No results available.");
+      Serial.print("...No results available.  ");
       Serial.print("Code: ");
       Serial.println(httpCode);
       }
@@ -296,8 +341,12 @@ void loop()
       }
     lastTime=currentTime;
 
+    unsigned long today=timeClient.getEpochTime();
+    char datebuff[32];
+    sprintf(datebuff, "%02d/%02d/%04d", month(today), day(today), year(today));
     myOLED.setFont(SmallFont);
-    myOLED.print(timeClient.getFormattedTime(),RIGHT,0);
+    myOLED.print(String(datebuff),RIGHT,0);
+    myOLED.print(timeClient.getFormattedTime(),RIGHT,12);
 
     //Update the weather every five minutes
     if (currentTime%300 ==0 || !weatherIsFetched)
