@@ -13,7 +13,7 @@
 #include <EEPROM.h>
 #include <pgmspace.h>
 #include <NTPClient.h>
-#include <OLED_I2C.h>
+#include <OLED_I2C.h> //http://www.rinkydinkelectronics.com/library.php?id=95
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
 #include <TimeLib.h>
@@ -303,6 +303,20 @@ void setup()
   EEPROM.begin(sizeof(settings)); //fire up the eeprom section of flash
   commandString.reserve(200); // reserve 200 bytes of serial buffer space for incoming command string
 
+  boolean oledGood=myOLED.begin(SSD1306_128X64);
+  if (!oledGood)
+    {
+    Serial.println("Problem allocating display buffer!");
+    delay(100000);
+    }
+  myOLED.setBrightness(100);
+  myOLED.rotateDisplay(true); //display is upside down in the container
+  myOLED.setFont(SmallFont);
+  myOLED.clrScr();
+
+  myOLED.print("Initializing...",LEFT,0);
+  myOLED.update();
+
   Serial.println("Loading settings");
   loadSettings(); //set the values from eeprom
   
@@ -311,17 +325,18 @@ void setup()
     Serial.println("Fixing weather URL");
     strcpy(properURL,WEATHER_URL);
     fixup(properURL);
+    myOLED.print("Connecting to WiFi...",LEFT,12);
+    myOLED.update();
     Serial.println("Connecting to WiFi");
     connectToWiFi(); //connect to the wifi
-
-    boolean oledGood=myOLED.begin(SSD1306_128X64);
-    if (!oledGood)
-      {
-      Serial.println("Problem allocating display buffer!");
-      delay(100000);
-      }
-    myOLED.setBrightness(100);
-    myOLED.clrScr();
+    myOLED.print("Fetching time and",LEFT,24);
+    myOLED.print("weather...",LEFT,36);
+    myOLED.update();
+    }
+  else
+    {
+    myOLED.print("Settings not valid.",LEFT,26);
+    myOLED.update();
     }
   }
 
@@ -344,7 +359,6 @@ void loop()
     unsigned long today=timeClient.getEpochTime();
     char datebuff[32];
     sprintf(datebuff, "%02d/%02d/%04d", month(today), day(today), year(today));
-    myOLED.setFont(SmallFont);
     myOLED.print(String(datebuff),RIGHT,0);
     myOLED.print(timeClient.getFormattedTime(),RIGHT,12);
 
