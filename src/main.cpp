@@ -63,33 +63,6 @@ StaticJsonDocument<WEATHER_SIZE> jDoc; //this will hold the weather query result
 char weatherBuff[WEATHER_SIZE];
 char iconBuffer[ICON_SIZE];
 
-
-// void printJson(JsonObject jo, String parent)
-//   {
-//   for (JsonPair keyValue : jo) 
-//     {
-//     if (keyValue.value().nesting()>0)
-//       {
-//       String newParent=parent+"."+keyValue.key().c_str();
-//       printJson(keyValue.value(),newParent);
-//       }
-//     // else if (keyValue.value().)
-//     //   {
-//     //   String newParent=parent+"."+keyValue.key().c_str();
-//     //   printJson(keyValue.value(),newParent);
-//     //   }
-//     else
-//       {
-//       Serial.print(parent+".");
-//       Serial.print(keyValue.key().c_str());
-//       Serial.print("=");
-//       Serial.print(keyValue.value().as<char*>());
-//       Serial.print(keyValue.value().as<float>());
-//       Serial.println(keyValue.value().nesting());
-//       }
-//     }
-//   }
-
 //Convert e.g. 130 degrees to "SE"
 void windDirection(char* compass, int degrees)
   {
