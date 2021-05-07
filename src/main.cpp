@@ -165,7 +165,7 @@ void displayWeather(JsonObject jo)
   myOLED.drawBitmap(0,0,(uint8_t *)iconBuffer,32,32);
   myOLED.print(conditions,LEFT,34);
 
-  myOLED.print(String(humidity)+String("%  ")+String(temperature)+String("~F"),RIGHT,24); 
+  myOLED.print(String(temperature)+String("~F  ")+String(humidity)+String("%"),RIGHT,24); 
   if (wind>0)
     myOLED.print(String(wind)+String(" MPH ")+String(comp),RIGHT,36);
   else
