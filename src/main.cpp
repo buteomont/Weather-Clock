@@ -239,6 +239,7 @@ void updateTime()
   connectToWiFi(); //may need to connect to the wifi
   if (settingsAreValid && WiFi.status() == WL_CONNECTED)
     {
+    yield();
     bool timeGood=timeClient.update();
     if (timeGood)
       {
