@@ -174,8 +174,9 @@ void displayWeather(JsonObject jo)
   myOLED.print(String(alert),CENTER,53);
   }
 
-void updateWeather()
+boolean updateWeather()
   {
+  boolean ok=false;
   digitalWrite(LED_BUILTIN,LOW); //turn on the LED
   Serial.print(timeClient.getFormattedTime());
   Serial.print("\tRefreshing weather...");
@@ -205,6 +206,7 @@ void updateWeather()
         weatherIsFetched=true;
         JsonObject documentRoot = jDoc.as<JsonObject>();
 //        printJson(documentRoot,"root");
+        ok=true;
         displayWeather(documentRoot);
         }
       else
@@ -229,6 +231,7 @@ void updateWeather()
     }  
 
   digitalWrite(LED_BUILTIN,HIGH); //turn off the LED
+  return ok;
   }
 
 void updateTime()
@@ -340,7 +343,8 @@ void loop()
     if (currentTime%300 ==0 || !weatherIsFetched)
       {
       myOLED.clrScr();
-      updateWeather();
+      if (!updateWeather())
+        Serial.println("Weather update failed.");
       }
     myOLED.update();
     }
@@ -406,7 +410,8 @@ void showSettings()
   sprintf(buffer,"%2.4f",settings.longitude);
   Serial.print(buffer);
   Serial.println(")");
-  Serial.println("\n*** Use \"factorydefaults=yes\" to reset all settings ***\n");
+  Serial.println("\n*** Use \"factorydefaults=yes\" to reset all settings ***");
+  Serial.println("*** Use \"reset=yes\" to reboot the device ***\n");
   }
 
 /*
@@ -480,6 +485,12 @@ bool processCommand(String cmd)
     initializeSettings();
     saveSettings();
     delay(2000);
+    ESP.restart();
+    }
+  else if ((strcmp(nme,"reset")==0) && (strcmp(val,"yes")==0)) //reset the device
+    {
+    Serial.println("\n*********************** Resetting Device ************************");
+    delay(1000);
     ESP.restart();
     }
   else
